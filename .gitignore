@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Training outputs
+training_history.npz
+*.pkl
+
+# OS
+.DS_Store
+Thumbs.db

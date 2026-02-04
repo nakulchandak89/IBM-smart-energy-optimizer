@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import os
+from datetime import datetime
 from agent import QLearningAgent
 from rtp_model import RTPGenerator
 from utils import StateUtils, APPLIANCE_MAPPING, ApplianceCategory
@@ -59,7 +60,9 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Generate RTP
-date_input = st.date_input("", value=pd.to_datetime("2023-12-01"), label_visibility="collapsed", key="date_hidden")
+date_col, _ = st.columns([0.15, 0.85])
+with date_col:
+    date_input = st.date_input("📅", value=datetime.now().date(), label_visibility="visible", key="date_hidden")
 date_str = date_input.strftime("%Y-%m-%d")
 rtp_gen = RTPGenerator()
 rtp_profile = rtp_gen.get_prices(date_str)
@@ -170,10 +173,14 @@ chart_col1, chart_col2 = st.columns(2)
 
 with chart_col1:
     st.markdown('<p class="section-title">📊 Today\'s RTP Prices (₹/kWh)</p>', unsafe_allow_html=True)
-    fig_rtp = go.Figure(go.Bar(
+    fig_rtp = go.Figure()
+    fig_rtp.add_trace(go.Scatter(
         x=[get_slot_short(i) for i in range(6)], y=rtp_profile,
-        marker_color=['#38ef7d' if p==min_p else '#f5576c' if p==max_p else '#667eea' for p in rtp_profile],
-        text=[f"₹{p:.1f}" for p in rtp_profile], textposition='outside'
+        mode='lines+markers+text',
+        line=dict(color='#667eea', width=3),
+        marker=dict(size=10, color=['#38ef7d' if p==min_p else '#f5576c' if p==max_p else '#667eea' for p in rtp_profile]),
+        text=[f"₹{p:.1f}" for p in rtp_profile], textposition='top center',
+        fill='tozeroy', fillcolor='rgba(102, 126, 234, 0.2)'
     ))
     fig_rtp.update_layout(height=200, margin=dict(l=10,r=10,t=20,b=30), 
         paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 

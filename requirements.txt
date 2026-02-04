@@ -1,5 +1,7 @@
 streamlit
-pandas
-numpy
+# Pin versions to avoid conflicts with IBM SDK
+pandas<2.2.0
+numpy<2.0.0
+scikit-learn
 plotly
 ibm-watson-machine-learning

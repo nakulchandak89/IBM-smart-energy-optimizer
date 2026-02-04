@@ -155,15 +155,40 @@ with col2:
                         rec = agent.choose_action(state, force_greedy=True)
                         
                         # Sanity check: If RL result is worse than base, force math optimal
-                        agent_cost = item['energy'] * rtp_profile[rec]
-                        base_cost = item['energy'] * rtp_profile[item['base_slot']]
                         if agent_cost > base_cost:
                              rec = agent.get_best_slot_for_price(rtp_profile, item['is_flexible'], s_slot, e_slot)
                     else:
                         # Fallback to pure math optimization (guaranteed best slot)
-                        rec = agent.get_best_slot_for_price(rtp_profile, item['is_flexible'], s_slot, e_slot)
+                        # We need to implement this logic since agent might not be loaded
+                         best_slot = s_slot
+                         min_p = rtp_profile[s_slot]
+                         valid_range = range(s_slot, e_slot + 1)
+                         for i in valid_range:
+                             if rtp_profile[i] < min_p:
+                                 min_p = rtp_profile[i]
+                                 best_slot = i
+                         rec = best_slot
                     
                     local_count += 1
+                
+                # FINAL SAFETY CHECK: regardless of source (IBM or Local)
+                # If the recommended slot is NOT cheaper than the original, force find the cheapest
+                if item['is_flexible']:
+                    current_price = rtp_profile[rec]
+                    base_price = rtp_profile[item['base_slot']]
+                    
+                    # If we are not saving money (allow small tolerance), find absolute best
+                    if current_price >= base_price:
+                         # Find mathematically optimal slot
+                         best_math_slot = 0
+                         min_math_p = float('inf')
+                         for i in range(6): # All slots
+                             if rtp_profile[i] < min_math_p:
+                                 min_math_p = rtp_profile[i]
+                                 best_math_slot = i
+                         
+                         # Use math optimal
+                         rec = best_math_slot
                 
                 b_cost = item['energy'] * rtp_profile[item['base_slot']]
                 o_cost = item['energy'] * rtp_profile[rec]

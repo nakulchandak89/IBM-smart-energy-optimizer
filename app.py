@@ -60,10 +60,27 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Generate RTP
-date_col, _ = st.columns([0.15, 0.85])
+# Date and Result Metrics Row
+date_col, spacer, m1, m2, m3 = st.columns([0.12, 0.4, 0.16, 0.16, 0.16])
 with date_col:
     date_input = st.date_input("📅", value=datetime.now().date(), label_visibility="visible", key="date_hidden")
+with m1:
+    if st.session_state['results']:
+        st.markdown(f'<div class="card"><div class="card-title">Traditional</div><div class="card-value red">₹{st.session_state["results"]["base"]:.0f}</div></div>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="card"><div class="card-title">Traditional</div><div class="card-value">--</div></div>', unsafe_allow_html=True)
+with m2:
+    if st.session_state['results']:
+        st.markdown(f'<div class="card"><div class="card-title">Optimized</div><div class="card-value">₹{st.session_state["results"]["opt"]:.0f}</div></div>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="card"><div class="card-title">Optimized</div><div class="card-value">--</div></div>', unsafe_allow_html=True)
+with m3:
+    if st.session_state['results']:
+        sav = st.session_state['results']['base'] - st.session_state['results']['opt']
+        st.markdown(f'<div class="card"><div class="card-title">Savings</div><div class="card-value green">₹{sav:.0f}</div></div>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="card"><div class="card-title">Savings</div><div class="card-value">--</div></div>', unsafe_allow_html=True)
+
 date_str = date_input.strftime("%Y-%m-%d")
 rtp_gen = RTPGenerator()
 rtp_profile = rtp_gen.get_prices(date_str)
@@ -104,7 +121,7 @@ with col2:
             "Time": a['base_time'].strftime("%H:%M"),
             "Flex": "✅" if a['is_flexible'] else "🔒"
         } for a in st.session_state['appliances']])
-        st.dataframe(df_apps, use_container_width=True, hide_index=True, height=180)
+        st.dataframe(df_apps, use_container_width=True, hide_index=True, height=250)
         
         bc1, bc2 = st.columns(2)
         run_opt = bc1.button("🚀 OPTIMIZE", type="primary", use_container_width=True)
@@ -133,7 +150,19 @@ with col2:
                         ibm_count += 1
                 
                 if rec is None:
-                    rec = agent.choose_action(state, force_greedy=True) if os.path.exists(MODEL_PATH) else rtp_profile.index(min_p)
+                    # Try RL Agent if model exists
+                    if os.path.exists(MODEL_PATH):
+                        rec = agent.choose_action(state, force_greedy=True)
+                        
+                        # Sanity check: If RL result is worse than base, force math optimal
+                        agent_cost = item['energy'] * rtp_profile[rec]
+                        base_cost = item['energy'] * rtp_profile[item['base_slot']]
+                        if agent_cost > base_cost:
+                             rec = agent.get_best_slot_for_price(rtp_profile, item['is_flexible'], s_slot, e_slot)
+                    else:
+                        # Fallback to pure math optimization (guaranteed best slot)
+                        rec = agent.get_best_slot_for_price(rtp_profile, item['is_flexible'], s_slot, e_slot)
+                    
                     local_count += 1
                 
                 b_cost = item['energy'] * rtp_profile[item['base_slot']]
@@ -150,17 +179,11 @@ with col2:
 
 # ----- COLUMN 3: Results -----
 with col3:
-    st.markdown('<p class="section-title">📈 Optimization Results</p>', unsafe_allow_html=True)
+    st.markdown('<p class="section-title">📈 Schedule Details</p>', unsafe_allow_html=True)
     if st.session_state['results']:
         res = st.session_state['results']
-        savings = res['base'] - res['opt']
-        pct = (savings / res['base'] * 100) if res['base'] > 0 else 0
         
-        # Metric Cards
-        mc1, mc2, mc3 = st.columns(3)
-        mc1.markdown(f'<div class="card"><div class="card-title">Traditional</div><div class="card-value red">₹{res["base"]:.0f}</div></div>', unsafe_allow_html=True)
-        mc2.markdown(f'<div class="card"><div class="card-title">Optimized</div><div class="card-value">₹{res["opt"]:.0f}</div></div>', unsafe_allow_html=True)
-        mc3.markdown(f'<div class="card"><div class="card-title">Savings</div><div class="card-value green">₹{savings:.0f}</div></div>', unsafe_allow_html=True)
+        # Schedule Table only (metrics are now at top)
         
         # Schedule Table 
         df_res = pd.DataFrame(res['details'])
@@ -168,7 +191,7 @@ with col3:
             display_df = df_res[['Appliance', 'From', 'To', 'save']].rename(columns={'save': 'Savings ₹'})
         else:
             display_df = df_res
-        st.dataframe(display_df, use_container_width=True, hide_index=True, height=150)
+        st.dataframe(display_df, use_container_width=True, hide_index=True, height=250)
         
         # IBM Status Message
         ibm_count = res.get('ibm_count', 0)
@@ -195,57 +218,89 @@ st.markdown("---")
 chart_col1, chart_col2 = st.columns(2)
 
 with chart_col1:
-    st.markdown('<p class="section-title">📊 Today\'s RTP Prices (₹/kWh)</p>', unsafe_allow_html=True)
+    st.markdown('<p class="section-title">📊 Today\'s RTP Prices</p>', unsafe_allow_html=True)
+    
+    # Add padding to X-axis so markers aren't cut off
+    x_vals = [get_slot_short(i) for i in range(6)]
+    
     fig_rtp = go.Figure()
     fig_rtp.add_trace(go.Scatter(
-        x=[get_slot_short(i) for i in range(6)], y=rtp_profile,
+        x=x_vals, y=rtp_profile,
         mode='lines+markers+text',
-        line=dict(color='#667eea', width=3),
-        marker=dict(size=10, color=['#38ef7d' if p==min_p else '#f5576c' if p==max_p else '#667eea' for p in rtp_profile]),
-        text=[f"₹{p:.1f}" for p in rtp_profile], textposition='top center',
+        line=dict(color='#667eea', width=4, shape='spline'),
+        marker=dict(size=14, color=['#38ef7d' if p==min_p else '#f5576c' if p==max_p else '#667eea' for p in rtp_profile],
+                    line=dict(color='white', width=2)),
+        text=[f"₹{p:.1f}" for p in rtp_profile], 
+        textposition="top center",
+        textfont=dict(size=12, color='#e0e0e0', family="Arial"),
         fill='tozeroy', fillcolor='rgba(102, 126, 234, 0.2)'
     ))
-    fig_rtp.update_layout(height=200, margin=dict(l=10,r=10,t=20,b=30), 
-        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
-        yaxis=dict(title="₹/kWh", gridcolor='#333'), xaxis=dict(title="Time Slot"))
+    
+    y_max = max(rtp_profile) * 1.3  # More headroom for labels
+    fig_rtp.update_layout(
+        height=280, 
+        margin=dict(l=20,r=20,t=40,b=20),
+        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+        yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)', range=[0, y_max], showticklabels=False),
+        xaxis=dict(showgrid=False, tickfont=dict(size=11, color='#aaa'), range=[-0.5, 5.5]) # Padding
+    )
     st.plotly_chart(fig_rtp, use_container_width=True, config={'displayModeBar': False})
 
 with chart_col2:
-    st.markdown('<p class="section-title">📈 Cost Comparison</p>', unsafe_allow_html=True)
+    st.markdown('<p class="section-title">📈 Cost Analysis</p>', unsafe_allow_html=True)
     if st.session_state['results']:
         res = st.session_state['results']
         df_res = pd.DataFrame(res['details'])
         
+        # Ensure we have the latest cost data
         if 'b_cost' in df_res.columns:
             orig_costs = df_res['b_cost'].tolist()
             opt_costs = df_res['o_cost'].tolist()
-        elif 'Original Cost' in df_res.columns:
-            orig_costs = df_res['Original Cost'].tolist()
-            opt_costs = df_res['Optimized Cost'].tolist()
         else:
-            orig_costs = [10] * len(res['details'])
-            opt_costs = [5] * len(res['details'])
+            orig_costs = [10.0] * len(res['details'])
+            opt_costs = [8.0] * len(res['details'])
         
-        # Horizontal bar chart for better readability
         fig = go.Figure()
+        
+        # Original Cost Bar
         fig.add_trace(go.Bar(
             name='Original', y=df_res['Appliance'], x=orig_costs, 
-            orientation='h', marker=dict(color='#f5576c', line=dict(width=0))
+            orientation='h', 
+            marker=dict(color='#f5576c', opacity=0.9, line=dict(width=0)),
+            text=[f" ₹{x:.1f}" for x in orig_costs], textposition='outside', # Outside for clearer reading
+            textfont=dict(color='#f5576c')
         ))
+        
+        # Optimized Cost Bar
         fig.add_trace(go.Bar(
             name='Optimized', y=df_res['Appliance'], x=opt_costs, 
-            orientation='h', marker=dict(color='#38ef7d', line=dict(width=0))
+            orientation='h', 
+            marker=dict(color='#38ef7d', opacity=0.9, line=dict(width=0)),
+            text=[f" ₹{x:.1f}" for x in opt_costs], textposition='outside',
+            textfont=dict(color='#38ef7d')
         ))
-        fig.update_layout(barmode='group', height=200, margin=dict(l=10,r=10,t=10,b=10),
+        
+        # Calculate dynamic height
+        chart_height = max(280, len(df_res) * 60)
+        max_cost = max(max(orig_costs), max(opt_costs)) * 1.3 # Headroom for text
+        
+        fig.update_layout(
+            barmode='group', 
+            bargap=0.30, # Space between appliance groups
+            bargroupgap=0.1, # Space between bars in a group
+            height=chart_height, 
+            margin=dict(l=10,r=40,t=20,b=20), # Right margin for text
             paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-            legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center", font=dict(size=10)),
-            xaxis=dict(title="Cost ₹", gridcolor='#333', showgrid=True),
-            yaxis=dict(showgrid=False))
+            legend=dict(orientation="h", y=1.1, x=0, xanchor="left", font=dict(size=12)),
+            xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)', showticklabels=False, range=[0, max_cost]),
+            yaxis=dict(showgrid=False, tickfont=dict(size=12, color='#ddd'))
+        )
         st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
     else:
-        st.markdown("""
-        <div class="card" style="text-align: center; padding: 1.5rem; height: 180px; display: flex; align-items: center; justify-content: center;">
-            <p style="color: #666; margin: 0;">Optimize to see comparison</p>
+         st.markdown("""
+        <div class="card" style="text-align: center; padding: 2.5rem; height: 280px; display: flex; flex-direction: column; align-items: center; justify-content: center; opacity: 0.5;">
+            <div style="font-size: 3rem; margin-bottom: 1rem;">📊</div>
+            <p style="color: #aaa; margin: 0;">Optimization results will<br>appear here</p>
         </div>
         """, unsafe_allow_html=True)
 

@@ -1,7 +1,7 @@
 streamlit
-# Pin versions to avoid conflicts with IBM SDK
-pandas<2.2.0
-numpy<2.0.0
-scikit-learn
+pandas
+numpy
 plotly
-ibm-watson-machine-learning
+requests
+# scikit-learn might be needed if agent.py imports it, but for REST API we don't need ibm SDK
+scikit-learn

@@ -22,8 +22,9 @@ MODEL_PATH = "q_table.pkl"
 # Custom CSS
 st.markdown("""
 <style>
-    .main .block-container { padding: 0.5rem 1.5rem; }
+    .main .block-container { padding: 0 2rem 1rem 2rem; max-width: 1200px; margin: 0 auto; }
     [data-testid="stSidebar"] { display: none; }
+    header[data-testid="stHeader"] { display: none; }
     .header-box { background: linear-gradient(90deg, #1a1a2e 0%, #16213e 100%); padding: 0.8rem 1.5rem; border-radius: 10px; margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; }
     .header-title { color: white; font-size: 1.4rem; font-weight: bold; margin: 0; }
     .header-sub { color: #6c757d; font-size: 0.75rem; margin: 0; }
@@ -118,13 +119,22 @@ with col2:
             if os.path.exists(MODEL_PATH): agent.load_model(MODEL_PATH)
             
             total_base, total_opt, details = 0, 0, []
+            ibm_count, local_count = 0, 0
+            
             for item in st.session_state['appliances']:
                 s_slot = 0 if item['is_flexible'] else item['base_slot']
                 e_slot = 5 if item['is_flexible'] else item['base_slot']
                 state = StateUtils.discretize_state(item['name'], item['energy'], temp_input, household_size, rtp_profile, item['is_flexible'], s_slot, e_slot)
                 
-                rec = get_ibm_recommendation(state) if use_ibm else None
-                if rec is None: rec = agent.choose_action(state, force_greedy=True) if os.path.exists(MODEL_PATH) else rtp_profile.index(min_p)
+                rec = None
+                if use_ibm:
+                    rec = get_ibm_recommendation(state)
+                    if rec is not None:
+                        ibm_count += 1
+                
+                if rec is None:
+                    rec = agent.choose_action(state, force_greedy=True) if os.path.exists(MODEL_PATH) else rtp_profile.index(min_p)
+                    local_count += 1
                 
                 b_cost = item['energy'] * rtp_profile[item['base_slot']]
                 o_cost = item['energy'] * rtp_profile[rec]
@@ -132,7 +142,7 @@ with col2:
                 total_opt += o_cost
                 details.append({"Appliance": item['name'], "From": get_slot_short(item['base_slot']), "To": get_slot_short(rec), "b_cost": b_cost, "o_cost": o_cost, "save": b_cost - o_cost})
             
-            st.session_state['results'] = {'base': total_base, 'opt': total_opt, 'details': details}
+            st.session_state['results'] = {'base': total_base, 'opt': total_opt, 'details': details, 'ibm_count': ibm_count, 'local_count': local_count}
             st.rerun()
     else:
         st.info("Add appliances to get started")
@@ -159,6 +169,19 @@ with col3:
         else:
             display_df = df_res
         st.dataframe(display_df, use_container_width=True, hide_index=True, height=150)
+        
+        # IBM Status Message
+        ibm_count = res.get('ibm_count', 0)
+        local_count = res.get('local_count', 0)
+        if ibm_count > 0:
+            st.markdown(f'''
+            <div style="background: linear-gradient(90deg, #0d3b66 0%, #1a365d 100%); padding: 0.5rem 1rem; border-radius: 6px; margin-top: 0.5rem; display: flex; align-items: center; gap: 8px;">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/5/51/IBM_logo.svg" style="height: 14px; filter: brightness(0) invert(1);">
+                <span style="color: #38ef7d; font-size: 0.75rem;">✓ {ibm_count} predictions via IBM Watson ML</span>
+            </div>
+            ''', unsafe_allow_html=True)
+        elif local_count > 0:
+            st.markdown(f'<div style="color: #888; font-size: 0.7rem; margin-top: 0.5rem;">🏠 {local_count} predictions via Local Model</div>', unsafe_allow_html=True)
     else:
         st.markdown("""
         <div class="card" style="text-align: center; padding: 2rem;">
@@ -188,7 +211,7 @@ with chart_col1:
     st.plotly_chart(fig_rtp, use_container_width=True, config={'displayModeBar': False})
 
 with chart_col2:
-    st.markdown('<p class="section-title">📈 Cost Comparison (Original vs Optimized)</p>', unsafe_allow_html=True)
+    st.markdown('<p class="section-title">📈 Cost Comparison</p>', unsafe_allow_html=True)
     if st.session_state['results']:
         res = st.session_state['results']
         df_res = pd.DataFrame(res['details'])
@@ -203,14 +226,21 @@ with chart_col2:
             orig_costs = [10] * len(res['details'])
             opt_costs = [5] * len(res['details'])
         
-        fig = go.Figure(data=[
-            go.Bar(name='Original', x=df_res['Appliance'], y=orig_costs, marker_color='#f5576c'),
-            go.Bar(name='Optimized', x=df_res['Appliance'], y=opt_costs, marker_color='#38ef7d')
-        ])
-        fig.update_layout(barmode='group', height=200, margin=dict(l=10,r=10,t=20,b=30),
+        # Horizontal bar chart for better readability
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            name='Original', y=df_res['Appliance'], x=orig_costs, 
+            orientation='h', marker=dict(color='#f5576c', line=dict(width=0))
+        ))
+        fig.add_trace(go.Bar(
+            name='Optimized', y=df_res['Appliance'], x=opt_costs, 
+            orientation='h', marker=dict(color='#38ef7d', line=dict(width=0))
+        ))
+        fig.update_layout(barmode='group', height=200, margin=dict(l=10,r=10,t=10,b=10),
             paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-            legend=dict(orientation="h", y=1.15, x=0.5, xanchor="center"),
-            yaxis=dict(title="Cost ₹", gridcolor='#333'), xaxis=dict(title="Appliance"))
+            legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center", font=dict(size=10)),
+            xaxis=dict(title="Cost ₹", gridcolor='#333', showgrid=True),
+            yaxis=dict(showgrid=False))
         st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
     else:
         st.markdown("""

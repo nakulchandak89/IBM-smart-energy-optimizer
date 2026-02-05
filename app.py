@@ -170,12 +170,11 @@ with col2:
                         valid_slots = range(s_slot, e_slot + 1)
                         sorted_slots = sorted([(s, rtp_profile[s]) for s in valid_slots], key=lambda x: x[1])
                         
-                        target_rank = 0
                         # User Rule: 
-                        # If Power > 650W (0.65 kW), go for absolute lowest (Rank 0)
-                        # If Power <= 650W, adjust between 2 and 3 (Rank 1 or 2)
+                        # If Power > 1000W (1.0 kW approx), go for absolute lowest (Rank 0)
+                        # If Power <= 1000W, adjust between 2 and 3 (Rank 1 or 2)
                         
-                        if item['energy'] > 0.65:
+                        if item['energy'] > 1.0:
                             target_rank = 0
                         else:
                             # Try to pick 2nd or 3rd lowest to distribute load

@@ -66,18 +66,18 @@ with date_col:
     date_input = st.date_input("📅", value=datetime.now().date(), label_visibility="visible", key="date_hidden")
 with m1:
     if st.session_state['results']:
-        st.markdown(f'<div class="card"><div class="card-title">Traditional</div><div class="card-value red">₹{st.session_state["results"]["base"]:.0f}</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="card"><div class="card-title">Traditional</div><div class="card-value red">₹{st.session_state["results"]["base"]:.2f}</div></div>', unsafe_allow_html=True)
     else:
         st.markdown('<div class="card"><div class="card-title">Traditional</div><div class="card-value">--</div></div>', unsafe_allow_html=True)
 with m2:
     if st.session_state['results']:
-        st.markdown(f'<div class="card"><div class="card-title">Optimized</div><div class="card-value">₹{st.session_state["results"]["opt"]:.0f}</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="card"><div class="card-title">Optimized</div><div class="card-value">₹{st.session_state["results"]["opt"]:.2f}</div></div>', unsafe_allow_html=True)
     else:
         st.markdown('<div class="card"><div class="card-title">Optimized</div><div class="card-value">--</div></div>', unsafe_allow_html=True)
 with m3:
     if st.session_state['results']:
         sav = st.session_state['results']['base'] - st.session_state['results']['opt']
-        st.markdown(f'<div class="card"><div class="card-title">Savings</div><div class="card-value green">₹{sav:.0f}</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="card"><div class="card-title">Savings</div><div class="card-value green">₹{sav:.2f}</div></div>', unsafe_allow_html=True)
     else:
         st.markdown('<div class="card"><div class="card-title">Savings</div><div class="card-value">--</div></div>', unsafe_allow_html=True)
 
@@ -154,20 +154,30 @@ with col2:
                     if os.path.exists(MODEL_PATH):
                         rec = agent.choose_action(state, force_greedy=True)
                         
-                        # Sanity check: If RL result is worse than base, force math optimal
+                        # Calculate costs for sanity check
+                        # Ensure we define these before checking!
+                        agent_cost = item['energy'] * rtp_profile[rec]
+                        base_cost = item['energy'] * rtp_profile[item['base_slot']]
+                        
+                        # Sanity check: If RL result is worse than base, force heuristic fallback
                         if agent_cost > base_cost:
-                             rec = agent.get_best_slot_for_price(rtp_profile, item['is_flexible'], s_slot, e_slot)
+                             rec = -1 
                     else:
-                        # Fallback to pure math optimization (guaranteed best slot)
-                        # We need to implement this logic since agent might not be loaded
-                         best_slot = s_slot
-                         min_p = rtp_profile[s_slot]
-                         valid_range = range(s_slot, e_slot + 1)
-                         for i in valid_range:
-                             if rtp_profile[i] < min_p:
-                                 min_p = rtp_profile[i]
-                                 best_slot = i
-                         rec = best_slot
+                        rec = -1
+                    
+                    if rec == -1:
+                        # Fallback Logic with Heuristic (Load Balancing)
+                        valid_slots = range(s_slot, e_slot + 1)
+                        sorted_slots = sorted([(s, rtp_profile[s]) for s in valid_slots], key=lambda x: x[1])
+                        
+                        target_rank = 0
+                        # If low energy (< 1.5 kWh) and we have alternatives, try 2nd best to distribute load
+                        if item['energy'] <= 1.5 and len(sorted_slots) > 1:
+                            # Only if penalty isn't huge (e.g. < ₹5 diff)
+                            if sorted_slots[1][1] - sorted_slots[0][1] < 5.0:
+                                target_rank = 1
+                        
+                        rec = sorted_slots[target_rank][0]
                     
                     local_count += 1
                 
@@ -292,7 +302,7 @@ with chart_col2:
             name='Original', y=df_res['Appliance'], x=orig_costs, 
             orientation='h', 
             marker=dict(color='#f5576c', opacity=0.9, line=dict(width=0)),
-            text=[f" ₹{x:.1f}" for x in orig_costs], textposition='outside', # Outside for clearer reading
+            text=[f" ₹{x:.2f}" for x in orig_costs], textposition='outside', # Outside for clearer reading
             textfont=dict(color='#f5576c')
         ))
         
@@ -301,7 +311,7 @@ with chart_col2:
             name='Optimized', y=df_res['Appliance'], x=opt_costs, 
             orientation='h', 
             marker=dict(color='#38ef7d', opacity=0.9, line=dict(width=0)),
-            text=[f" ₹{x:.1f}" for x in opt_costs], textposition='outside',
+            text=[f" ₹{x:.2f}" for x in opt_costs], textposition='outside',
             textfont=dict(color='#38ef7d')
         ))
         

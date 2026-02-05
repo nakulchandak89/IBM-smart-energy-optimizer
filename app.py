@@ -143,55 +143,38 @@ with col2:
                 e_slot = 5 if item['is_flexible'] else item['base_slot']
                 state = StateUtils.discretize_state(item['name'], item['energy'], temp_input, household_size, rtp_profile, item['is_flexible'], s_slot, e_slot)
                 
-                rec = None
-                if use_ibm:
-                    rec = get_ibm_recommendation(state)
-                    if rec is not None:
-                        ibm_count += 1
+                # FORCE HEURISTIC COMPLIANCE (User Requirement)
+                # The RL/IBM models optimize for lowest cost (Rank 0).
+                # But user wants Low Load items to use Rank 1 or 2 to "distribute load".
+                # So we must override the "optimal" choice if it violates this distribution rule.
                 
-                if rec is None:
-                    # Try RL Agent if model exists
-                    if os.path.exists(MODEL_PATH):
-                        rec = agent.choose_action(state, force_greedy=True)
-                        
-                        # Calculate costs for sanity check
-                        # Ensure we define these before checking!
-                        agent_cost = item['energy'] * rtp_profile[rec]
-                        base_cost = item['energy'] * rtp_profile[item['base_slot']]
-                        
-                        # Sanity check: If RL result is worse than base, force heuristic fallback
-                        if agent_cost > base_cost:
-                             rec = -1 
-                    else:
-                        rec = -1
-                    
-                    if rec == -1:
-                        # Fallback Logic with Heuristic (Load Balancing)
-                        valid_slots = range(s_slot, e_slot + 1)
-                        sorted_slots = sorted([(s, rtp_profile[s]) for s in valid_slots], key=lambda x: x[1])
-                        
-                        # User Rule: 
-                        # If Power > 1000W (1.0 kW approx), go for absolute lowest (Rank 0)
-                        # If Power <= 1000W, adjust between 2 and 3 (Rank 1 or 2)
-                        
-                        if item['energy'] > 1.0:
-                            target_rank = 0
-                        else:
-                            # Try to pick 2nd or 3rd lowest to distribute load
-                            # Ensure we don't go out of bounds if limited slots available
-                            available_ranks = []
-                            if len(sorted_slots) > 1: available_ranks.append(1)
-                            if len(sorted_slots) > 2: available_ranks.append(2)
-                            
-                            if available_ranks:
-                                import random
-                                target_rank = random.choice(available_ranks)
-                            else:
-                                target_rank = 0 # Fallback to 0 if only 1 slot
-                        
-                        rec = sorted_slots[target_rank][0]
-                    
-                    local_count += 1
+                if item['is_flexible']:
+                     valid_slots = range(s_slot, e_slot + 1)
+                     sorted_slots = sorted([(s, rtp_profile[s]) for s in valid_slots], key=lambda x: x[1])
+                     
+                     target_rank = 0
+                     
+                     # Power > 1.0 kW -> Rank 0 (Lowest Cost) - Keep Agent's choice if it matches, or force it
+                     # Power <= 1.0 kW -> Rank 1 or 2 (Next Lowest) - Force it
+                     
+                     if item['energy'] <= 1.0:
+                         # Low Load: Force 2nd or 3rd lowest
+                         available_ranks = []
+                         if len(sorted_slots) > 1: available_ranks.append(1)
+                         if len(sorted_slots) > 2: available_ranks.append(2)
+                         
+                         if available_ranks:
+                             import random
+                             target_rank = random.choice(available_ranks)
+                             rec = sorted_slots[target_rank][0] # Override rec
+                         # else: keep rec (Rank 0) if only 1 slot available
+                         
+                     else:
+                         # High Load: Ensure we strictly get the lowest (Rank 0)
+                         # The Agent usually does this, but we force it to be safe
+                         rec = sorted_slots[0][0]
+                
+                local_count += 1
                 
                 # FINAL SAFETY CHECK: regardless of source (IBM or Local)
                 # If the recommended slot is NOT cheaper than the original, force find the cheapest

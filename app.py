@@ -171,11 +171,24 @@ with col2:
                         sorted_slots = sorted([(s, rtp_profile[s]) for s in valid_slots], key=lambda x: x[1])
                         
                         target_rank = 0
-                        # If low energy (< 1.5 kWh) and we have alternatives, try 2nd best to distribute load
-                        if item['energy'] <= 1.5 and len(sorted_slots) > 1:
-                            # Only if penalty isn't huge (e.g. < ₹5 diff)
-                            if sorted_slots[1][1] - sorted_slots[0][1] < 5.0:
-                                target_rank = 1
+                        # User Rule: 
+                        # If Power > 650W (0.65 kW), go for absolute lowest (Rank 0)
+                        # If Power <= 650W, adjust between 2 and 3 (Rank 1 or 2)
+                        
+                        if item['energy'] > 0.65:
+                            target_rank = 0
+                        else:
+                            # Try to pick 2nd or 3rd lowest to distribute load
+                            # Ensure we don't go out of bounds if limited slots available
+                            available_ranks = []
+                            if len(sorted_slots) > 1: available_ranks.append(1)
+                            if len(sorted_slots) > 2: available_ranks.append(2)
+                            
+                            if available_ranks:
+                                import random
+                                target_rank = random.choice(available_ranks)
+                            else:
+                                target_rank = 0 # Fallback to 0 if only 1 slot
                         
                         rec = sorted_slots[target_rank][0]
                     

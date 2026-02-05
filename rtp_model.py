@@ -9,7 +9,7 @@ class RTPGenerator:
     """
     
     NUM_SLOTS = 6
-    MIN_PRICE = 0.0
+    MIN_PRICE = 0.5
     MAX_PRICE = 25.0
     
     @staticmethod
